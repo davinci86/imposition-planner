@@ -180,6 +180,10 @@ function mm(n: number) {
   return `${Number(n.toFixed(2))} mm`;
 }
 
+function m2(n: number) {
+  return `${Number(n.toFixed(2))} m²`;
+}
+
 function openFromClosed(w: number, h: number) {
   // Regola corretta:
   // il formato aperto raddoppia sempre la base/larghezza.
@@ -268,6 +272,7 @@ export default function App() {
   const [orientation, setOrientation] = useState<Orientation>("auto");
 
   const [qtyCommercial, setQtyCommercial] = useState(100);
+  const [printSidesCommercial, setPrintSidesCommercial] = useState<PrintSides>(1);
 
   const [copies, setCopies] = useState(100);
   const [facciate, setFacciate] = useState(64);
@@ -508,15 +513,23 @@ export default function App() {
   }
 
   const evalCommercial = useMemo(() => {
-    return evalForPieceDims(dimsClosed.w, dimsClosed.h, consideredSheets).map((ev) => ({
-      ...ev,
-      qty: qtyCommercial,
-      sheetsNeeded: ev.nUp > 0 ? Math.ceil(qtyCommercial / ev.nUp) : Infinity,
-    }));
+    return evalForPieceDims(dimsClosed.w, dimsClosed.h, consideredSheets).map((ev) => {
+      const sheetsNeeded = ev.nUp > 0 ? Math.ceil(qtyCommercial / ev.nUp) : Infinity;
+      return {
+        ...ev,
+        qty: qtyCommercial,
+        sheetsNeeded,
+        // Il numero di fogli fisici non cambia con fronte/retro (i pezzi
+        // ci stanno comunque); a raddoppiare sono le passate macchina,
+        // perché lo stesso foglio deve passare due volte sotto stampa.
+        passesNeeded: sheetsNeeded * printSidesCommercial,
+      };
+    });
   }, [
     dimsClosed,
     consideredSheets,
     qtyCommercial,
+    printSidesCommercial,
     marginX,
     marginY,
     bleed,
@@ -601,18 +614,26 @@ export default function App() {
     const maxPx = 620 * zoom;
     const scale = Math.min(maxPx / sheet.w, maxPx / sheet.h);
 
+    // Sfrido = complementare della copertura: l'area del foglio non
+    // occupata dai pezzi utili (che finisce scartata dopo il taglio).
+    const wasteFraction = Math.max(0, 1 - fit.coverage);
+    const sheetAreaM2 = (sheet.w * sheet.h) / 1_000_000;
+    const wasteAreaM2 = sheetAreaM2 * wasteFraction;
+    const coveredAreaM2 = sheetAreaM2 * fit.coverage;
+
     return (
       <div className="space-y-1">
         <div className="text-xs text-gray-700">
           {label} · resa: <b>{fit.nUp}</b> ({fit.cols}×{fit.rows}) · copertura:{" "}
-          <b>{pct(fit.coverage)}</b>
+          <b>{pct(fit.coverage)}</b> ({m2(coveredAreaM2)}) · sfrido:{" "}
+          <b>{pct(wasteFraction)}</b> ({m2(wasteAreaM2)})
         </div>
 
         <svg
           width={sheet.w * scale}
           height={sheet.h * scale}
           viewBox={`0 0 ${sheet.w} ${sheet.h}`}
-          className="border rounded-2xl shadow-sm bg-white"
+          className="border shadow-sm bg-white"
         >
           <rect x={0} y={0} width={sheet.w} height={sheet.h} fill="#f8fafc" stroke="#94a3b8" />
 
@@ -797,15 +818,30 @@ export default function App() {
           </div>
 
           {productType === "commerciale" ? (
-            <div>
-              <label className="block text-xs text-gray-600">Quantità pezzi</label>
-              <input
-                type="number"
-                className="w-full border rounded px-2 py-1"
-                value={qtyCommercial}
-                onChange={(e) => setQtyCommercial(Math.max(0, Number(e.target.value)))}
-                min={0}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-600">Quantità pezzi</label>
+                <input
+                  type="number"
+                  className="w-full border rounded px-2 py-1"
+                  value={qtyCommercial}
+                  onChange={(e) => setQtyCommercial(Math.max(0, Number(e.target.value)))}
+                  min={0}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600">Stampa</label>
+                <select
+                  className="w-full border rounded px-2 py-1"
+                  value={printSidesCommercial}
+                  onChange={(e) =>
+                    setPrintSidesCommercial(Number(e.target.value) as PrintSides)
+                  }
+                >
+                  <option value={1}>Solo fronte</option>
+                  <option value={2}>Fronte / Retro</option>
+                </select>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
@@ -1389,7 +1425,10 @@ export default function App() {
                         <div className="text-sm font-medium mb-1">
                           Foglio macchina: <b>{ev.sheet.name}</b> — {ev.sheet.w}×{ev.sheet.h} mm ·
                           Fogli necessari:{" "}
-                          <b>{isFinite(ev.sheetsNeeded) ? ev.sheetsNeeded : "—"}</b>
+                          <b>{isFinite(ev.sheetsNeeded) ? ev.sheetsNeeded : "—"}</b> · Passate
+                          macchina:{" "}
+                          <b>{isFinite(ev.passesNeeded) ? ev.passesNeeded : "—"}</b> (
+                          {printSidesCommercial === 2 ? "fronte/retro" : "solo fronte"})
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1398,7 +1437,9 @@ export default function App() {
                         </div>
 
                         <div className="text-xs text-gray-600 mt-1">
-                          Formula: ceil({ev.qty} / {ev.nUp})
+                          Formula fogli: ceil({ev.qty} / {ev.nUp}) · Formula passate:{" "}
+                          {isFinite(ev.sheetsNeeded) ? ev.sheetsNeeded : "—"} ×{" "}
+                          {printSidesCommercial}
                         </div>
                       </div>
                     ))}
