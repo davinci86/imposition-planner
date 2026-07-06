@@ -606,10 +606,16 @@ export default function App() {
     sheet,
     fit,
     label,
+    isUsed,
+    sheetsForThisFit,
+    passesForThisFit,
   }: {
     sheet: Sheet;
     fit: GridFit;
     label: string;
+    isUsed?: boolean;
+    sheetsForThisFit?: number;
+    passesForThisFit?: number;
   }) {
     const maxPx = 620 * zoom;
     const scale = Math.min(maxPx / sheet.w, maxPx / sheet.h);
@@ -627,13 +633,41 @@ export default function App() {
           {label} · resa: <b>{fit.nUp}</b> ({fit.cols}×{fit.rows}) · copertura:{" "}
           <b>{pct(fit.coverage)}</b> ({m2(coveredAreaM2)}) · sfrido:{" "}
           <b>{pct(wasteFraction)}</b> ({m2(wasteAreaM2)})
+          {isUsed && (
+            <span className="ml-2 inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold align-middle">
+              ✓ usato per fogli/passate
+            </span>
+          )}
         </div>
+
+        {sheetsForThisFit !== undefined && (
+          <div className="text-xs text-gray-700">
+            <div>
+              Con questo montaggio: fogli necessari{" "}
+              <b>{isFinite(sheetsForThisFit) ? sheetsForThisFit : "—"}</b>
+              {passesForThisFit !== undefined && (
+                <>
+                  {" "}
+                  · passate macchina{" "}
+                  <b>{isFinite(passesForThisFit) ? passesForThisFit : "—"}</b>
+                </>
+              )}
+            </div>
+            {isFinite(sheetsForThisFit) && (
+              <div>
+                Consumo carta totale:{" "}
+                <b>{m2(sheetsForThisFit * sheetAreaM2)}</b> · Sfrido totale:{" "}
+                <b>{m2(sheetsForThisFit * wasteAreaM2)}</b>
+              </div>
+            )}
+          </div>
+        )}
 
         <svg
           width={sheet.w * scale}
           height={sheet.h * scale}
           viewBox={`0 0 ${sheet.w} ${sheet.h}`}
-          className="border shadow-sm bg-white"
+          className={`border shadow-sm bg-white ${isUsed ? "ring-2 ring-emerald-400" : ""}`}
         >
           <rect x={0} y={0} width={sheet.w} height={sheet.h} fill="#f8fafc" stroke="#94a3b8" />
 
@@ -1424,7 +1458,12 @@ export default function App() {
                       >
                         <div className="text-sm font-medium mb-1">
                           Foglio macchina: <b>{ev.sheet.name}</b> — {ev.sheet.w}×{ev.sheet.h} mm ·
-                          Fogli necessari:{" "}
+                          Montaggio:{" "}
+                          <b>
+                            {ev.bestFit === ev.fitPortrait ? "verticale" : "orizzontale"} (resa{" "}
+                            {ev.nUp})
+                          </b>{" "}
+                          · Fogli necessari:{" "}
                           <b>{isFinite(ev.sheetsNeeded) ? ev.sheetsNeeded : "—"}</b> · Passate
                           macchina:{" "}
                           <b>{isFinite(ev.passesNeeded) ? ev.passesNeeded : "—"}</b> (
@@ -1432,8 +1471,38 @@ export default function App() {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <SheetSVG sheet={ev.sheet} fit={ev.fitPortrait} label="Montaggio verticale" />
-                          <SheetSVG sheet={ev.sheet} fit={ev.fitLandscape} label="Montaggio orizzontale" />
+                          <SheetSVG
+                            sheet={ev.sheet}
+                            fit={ev.fitPortrait}
+                            label="Montaggio verticale"
+                            isUsed={ev.bestFit === ev.fitPortrait}
+                            sheetsForThisFit={
+                              ev.fitPortrait.nUp > 0
+                                ? Math.ceil(ev.qty / ev.fitPortrait.nUp)
+                                : Infinity
+                            }
+                            passesForThisFit={
+                              (ev.fitPortrait.nUp > 0
+                                ? Math.ceil(ev.qty / ev.fitPortrait.nUp)
+                                : Infinity) * printSidesCommercial
+                            }
+                          />
+                          <SheetSVG
+                            sheet={ev.sheet}
+                            fit={ev.fitLandscape}
+                            label="Montaggio orizzontale"
+                            isUsed={ev.bestFit === ev.fitLandscape}
+                            sheetsForThisFit={
+                              ev.fitLandscape.nUp > 0
+                                ? Math.ceil(ev.qty / ev.fitLandscape.nUp)
+                                : Infinity
+                            }
+                            passesForThisFit={
+                              (ev.fitLandscape.nUp > 0
+                                ? Math.ceil(ev.qty / ev.fitLandscape.nUp)
+                                : Infinity) * printSidesCommercial
+                            }
+                          />
                         </div>
 
                         <div className="text-xs text-gray-600 mt-1">
@@ -1503,8 +1572,32 @@ export default function App() {
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <SheetSVG sheet={best.sheet} fit={best.fitPortrait} label="Montaggio verticale" />
-                              <SheetSVG sheet={best.sheet} fit={best.fitLandscape} label="Montaggio orizzontale" />
+                              <SheetSVG
+                                sheet={best.sheet}
+                                fit={best.fitPortrait}
+                                label="Montaggio verticale"
+                                isUsed={best.bestFit === best.fitPortrait}
+                                sheetsForThisFit={
+                                  best.fitPortrait.nUp > 0
+                                    ? Math.ceil(
+                                        interiorPieces / (best.fitPortrait.nUp * printSidesInt)
+                                      )
+                                    : Infinity
+                                }
+                              />
+                              <SheetSVG
+                                sheet={best.sheet}
+                                fit={best.fitLandscape}
+                                label="Montaggio orizzontale"
+                                isUsed={best.bestFit === best.fitLandscape}
+                                sheetsForThisFit={
+                                  best.fitLandscape.nUp > 0
+                                    ? Math.ceil(
+                                        interiorPieces / (best.fitLandscape.nUp * printSidesInt)
+                                      )
+                                    : Infinity
+                                }
+                              />
                             </div>
 
                             <div className="text-sm">
@@ -1577,8 +1670,32 @@ export default function App() {
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <SheetSVG sheet={best.sheet} fit={best.fitPortrait} label="Montaggio verticale" />
-                              <SheetSVG sheet={best.sheet} fit={best.fitLandscape} label="Montaggio orizzontale" />
+                              <SheetSVG
+                                sheet={best.sheet}
+                                fit={best.fitPortrait}
+                                label="Montaggio verticale"
+                                isUsed={best.bestFit === best.fitPortrait}
+                                sheetsForThisFit={
+                                  best.fitPortrait.nUp > 0
+                                    ? Math.ceil(
+                                        coverPieces / (best.fitPortrait.nUp * printSidesCov)
+                                      )
+                                    : Infinity
+                                }
+                              />
+                              <SheetSVG
+                                sheet={best.sheet}
+                                fit={best.fitLandscape}
+                                label="Montaggio orizzontale"
+                                isUsed={best.bestFit === best.fitLandscape}
+                                sheetsForThisFit={
+                                  best.fitLandscape.nUp > 0
+                                    ? Math.ceil(
+                                        coverPieces / (best.fitLandscape.nUp * printSidesCov)
+                                      )
+                                    : Infinity
+                                }
+                              />
                             </div>
 
                             <div className="text-sm">
